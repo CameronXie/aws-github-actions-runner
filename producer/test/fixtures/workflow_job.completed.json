@@ -1,0 +1,22 @@
+{
+  "action": "completed",
+  "workflow_job": {
+    "id": 2832853555,
+    "run_id": 940463255,
+    "labels": [
+      "self-hosted",
+      "ubuntu",
+      "ec2"
+    ],
+    "runner_name": 2832586764
+  },
+  "repository": {
+    "id": 376034443,
+    "name": "example-workflow",
+    "full_name": "octo-org/example-workflow",
+    "owner": {
+      "login": "octo-org",
+      "id": 33435655
+    }
+  }
+}
