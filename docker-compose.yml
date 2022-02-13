@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  deployer:
+    container_name: actions_runner_deployer
+    build:
+      context: docker/deployer
+    volumes:
+      - './:/var/deployer'
+    working_dir: '/var/deployer'
+    command: [ '/bin/sh', '-c', 'tail -f /dev/null' ]
+    env_file:
+      - .env
+    restart: always
+    depends_on:
+      - docker
+      - dynamodb
+  docker:
+    container_name: actions_runner_docker
+    image: docker:dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR:
+  dynamodb:
+    container_name: actions_runner_dynamodb
+    image: 'amazon/dynamodb-local:latest'
+    volumes:
+      - './dist/dynamodb:/home/dynamodblocal/data'
+    command: [ '-jar', 'DynamoDBLocal.jar', '-sharedDb', '-dbPath', './data' ]
+    restart: always
