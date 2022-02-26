@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.8.0
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.6.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.13.0
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.16.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.15.0
 	github.com/aws/smithy-go v1.10.0
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/zap v1.20.0

@@ -44,38 +44,42 @@ func (s *storageSuite) TestStorage_GetJobs() {
 				Statuses: []string{"queued", "completed"},
 				Limit:    5,
 			},
+			// nolint: dupl
 			expected: []Job{
 				{
 					ID:     1,
 					Host:   "ec2",
+					OS:     "ubuntu",
 					Status: "queued",
 					Content: JobContent{
 						ID:         1,
 						Owner:      "owner-1",
 						Repository: "repo-1",
-						Labels:     []string{"ec2"},
+						Labels:     []string{"ec2", "ubuntu"},
 					},
 				},
 				{
 					ID:     2,
 					Host:   "ec2",
+					OS:     "ubuntu",
 					Status: "completed",
 					Content: JobContent{
 						ID:         2,
 						Owner:      "owner-2",
 						Repository: "repo-2",
-						Labels:     []string{"ec2"},
+						Labels:     []string{"ec2", "ubuntu"},
 					},
 				},
 				{
 					ID:     4,
 					Host:   "ec2",
+					OS:     "ubuntu",
 					Status: "completed",
 					Content: JobContent{
 						ID:         4,
 						Owner:      "owner-4",
 						Repository: "repo-4",
-						Labels:     []string{"ec2"},
+						Labels:     []string{"ec2", "ubuntu"},
 					},
 				},
 			},
@@ -121,40 +125,44 @@ func (s *storageSuite) TestStorage_UpdateJobs() {
 					{ID: 3, Status: "updated"},
 					{ID: 4, Status: "updated"},
 				},
-				Delete: []int{0, 1, 2},
+				Delete: []uint64{0, 1, 2},
 			},
+			// nolint: dupl
 			expected: []Job{
 				{
 					ID:     3,
 					Host:   "ec2",
+					OS:     "ubuntu",
 					Status: "updated",
 					Content: JobContent{
 						ID:         3,
 						Owner:      "owner-3",
 						Repository: "repo-3",
-						Labels:     []string{"ec2"},
+						Labels:     []string{"ec2", "ubuntu"},
 					},
 				},
 				{
 					ID:     4,
 					Host:   "ec2",
+					OS:     "ubuntu",
 					Status: "updated",
 					Content: JobContent{
 						ID:         4,
 						Owner:      "owner-4",
 						Repository: "repo-4",
-						Labels:     []string{"ec2"},
+						Labels:     []string{"ec2", "ubuntu"},
 					},
 				},
 				{
 					ID:     5,
 					Host:   "ec2",
+					OS:     "ubuntu",
 					Status: "queued",
 					Content: JobContent{
 						ID:         5,
 						Owner:      "owner-5",
 						Repository: "repo-5",
-						Labels:     []string{"ec2"},
+						Labels:     []string{"ec2", "ubuntu"},
 					},
 				},
 			},
@@ -223,7 +231,7 @@ func (s *storageSuite) TearDownTest() {
 			DeleteRequest: &types.DeleteRequest{
 				Key: map[string]types.AttributeValue{
 					"ID": &types.AttributeValueMemberN{
-						Value: strconv.Itoa(j.ID),
+						Value: uint64ToString(j.ID),
 					},
 				},
 			},
@@ -278,7 +286,7 @@ func (s *storageSuite) setupTestTable() {
 					},
 				},
 				Projection: &types.Projection{
-					NonKeyAttributes: []string{"Status", "Content"},
+					NonKeyAttributes: []string{"OS", "Content", "Status"},
 					ProjectionType:   types.ProjectionTypeInclude,
 				},
 			},
@@ -314,14 +322,15 @@ func getTestJobs(num int) []Job {
 		}
 
 		jobs[i] = Job{
-			ID:     i,
+			ID:     uint64(i),
 			Host:   "ec2",
+			OS:     "ubuntu",
 			Status: status,
 			Content: JobContent{
-				ID:         i,
+				ID:         uint64(i),
 				Owner:      fmt.Sprintf("owner-%v", i),
 				Repository: fmt.Sprintf("repo-%v", i),
-				Labels:     []string{"ec2"},
+				Labels:     []string{"ec2", "ubuntu"},
 			},
 		}
 	}
@@ -333,10 +342,13 @@ func getPutRequestFromJob(job *Job) *types.PutRequest {
 	return &types.PutRequest{
 		Item: map[string]types.AttributeValue{
 			"ID": &types.AttributeValueMemberN{
-				Value: strconv.Itoa(job.ID),
+				Value: uint64ToString(job.ID),
 			},
 			"Host": &types.AttributeValueMemberS{
 				Value: job.Host,
+			},
+			"OS": &types.AttributeValueMemberS{
+				Value: job.OS,
 			},
 			"Content": &types.AttributeValueMemberB{
 				Value: getCompressedContent(job.Content),

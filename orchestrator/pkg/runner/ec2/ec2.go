@@ -3,6 +3,7 @@ package ec2
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -41,4 +42,9 @@ func getInstanceIDByTag(
 	}
 
 	return ids, nil
+}
+
+func uint64ToString(n uint64) string {
+	base := 10
+	return strconv.FormatUint(n, base)
 }

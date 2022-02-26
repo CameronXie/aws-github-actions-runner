@@ -3,7 +3,7 @@ package runner
 import "context"
 
 type LaunchInput struct {
-	ID         int
+	ID         uint64
 	Owner      string
 	Repository string
 	Labels     []string

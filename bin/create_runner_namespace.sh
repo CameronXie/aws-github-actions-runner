@@ -2,8 +2,8 @@
 
 set -ex
 
-launcherRole=$(aws lambda get-function --function-name actions-runner-launcher --query Configuration.Role --region ${CDK_DEFAULT_REGION})
-terminatorRole=$(aws lambda get-function --function-name actions-runner-terminator --query Configuration.Role --region ${CDK_DEFAULT_REGION})
+ubuntuLauncherRole=$(aws lambda get-function --function-name actions-runner-eks-ubuntu-launcher --query Configuration.Role --region ${CDK_DEFAULT_REGION})
+terminatorRole=$(aws lambda get-function --function-name actions-runner-eks-terminator --query Configuration.Role --region ${CDK_DEFAULT_REGION})
 token=$(echo -n ${GITHUB_TOKEN} | base64 -w 0)
 
 build_dir="$(mktemp -d)"
@@ -17,8 +17,8 @@ metadata:
   namespace: kube-system
 data:
   mapUsers: |
-    - userarn: ${launcherRole}
-      username: launcher
+    - userarn: ${ubuntuLauncherRole}
+      username: ubuntu-launcher
     - userarn: ${terminatorRole}
       username: terminator
 ---
@@ -31,7 +31,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   namespace: actions-runner
-  name: launcher
+  name: ubuntu-launcher
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -45,11 +45,11 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: launcher
+  name: ubuntu-launcher
 subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: User
-    name: launcher
+    name: ubuntu-launcher
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

@@ -55,6 +55,7 @@ const ubuntuInstanceType = ec2.InstanceType.of(
 const application = 'actions-runner';
 const ec2ConcurrencyLimit = 20;
 const eksConcurrencyLimit = 20;
+const logLevel = 'debug';
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
   region: process.env.CDK_DEFAULT_REGION,
@@ -87,14 +88,14 @@ const publisher = new Publisher(app, `${application}-publisher`, {
   githubToken: getEnvStr('GITHUB_TOKEN'),
   ec2ConcurrencyLimit,
   eksConcurrencyLimit,
+  logLevel,
   env,
 });
 
 new Orchestrator(app, `${application}-orchestrator`, {
   application,
   githubToken: getEnvStr('GITHUB_TOKEN'),
-  launchQueue: publisher.launchQueue,
-  terminationQueue: publisher.terminationQueue,
+  jobsTopic: publisher.jobsTopic,
   ubuntuLaunchTemplateID: template.ubuntuLaunchTemplate.launchTemplateId || '',
   cluster: {
     cluster,

@@ -1,4 +1,4 @@
-COMPONENTS=producer publisher orchestrator
+COMPONENTS=producer messenger publisher orchestrator
 RUNNER_ECR="${CDK_DEFAULT_ACCOUNT}.dkr.ecr.${CDK_DEFAULT_REGION}.amazonaws.com/actions-runner-ecr"
 RUNNER_TAG=$(RUNNER_ECR):latest
 

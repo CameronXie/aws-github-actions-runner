@@ -12,7 +12,7 @@ import (
 )
 
 func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
-	id, host, status := 123, "host", "status"
+	id, host, os, status := uint64(123), "host", "os", "status"
 	cases := map[string]struct {
 		av       types.AttributeValue
 		expected *Job
@@ -22,6 +22,7 @@ func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
 			av: getDynamoDBItem(
 				id,
 				host,
+				os,
 				status,
 				getCompressedContent(JobContent{
 					ID:         id,
@@ -33,6 +34,7 @@ func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
 			expected: &Job{
 				ID:     id,
 				Host:   host,
+				OS:     os,
 				Status: status,
 				Content: JobContent{
 					ID:         id,
@@ -46,6 +48,7 @@ func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
 			av: getDynamoDBItem(
 				id,
 				host,
+				os,
 				status,
 				[]byte("random"),
 			),
@@ -55,6 +58,7 @@ func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
 			av: getDynamoDBItem(
 				id,
 				host,
+				os,
 				status,
 				getCompressedStr(`{`),
 			),
@@ -64,12 +68,14 @@ func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
 			av: getDynamoDBItem(
 				id,
 				host,
+				os,
 				status,
 				getCompressedStr(`{}`),
 			),
 			expected: &Job{
 				ID:      id,
 				Host:    host,
+				OS:      os,
 				Status:  status,
 				Content: JobContent{},
 			},
@@ -100,19 +106,22 @@ func TestJob_UnmarshalDynamoDBAttributeValue(t *testing.T) {
 
 //nolint:unparam
 func getDynamoDBItem(
-	id int,
+	id uint64,
 	host string,
+	os string,
 	status string,
 	content []byte,
 ) types.AttributeValue {
 	av, _ := attributevalue.MarshalMap(struct {
-		ID      int
+		ID      uint64
 		Host    string
+		OS      string
 		Status  string
 		Content []byte
 	}{
 		ID:      id,
 		Host:    host,
+		OS:      os,
 		Status:  status,
 		Content: content,
 	})

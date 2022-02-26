@@ -2,7 +2,6 @@ package ec2
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/CameronXie/aws-github-actions-runner/orchestrator/pkg/runner"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -21,8 +20,8 @@ type ec2Terminator struct {
 	client TerminateInstancesAPIClient
 }
 
-func (t *ec2Terminator) Terminate(ctx context.Context, id int) error {
-	ids, rErr := getInstanceIDByTag(t.client, ctx, idTag, []string{strconv.Itoa(id)})
+func (t *ec2Terminator) Terminate(ctx context.Context, id uint64) error {
+	ids, rErr := getInstanceIDByTag(t.client, ctx, idTag, []string{uint64ToString(id)})
 
 	if rErr != nil {
 		return rErr

@@ -19,13 +19,13 @@ type GetJobsInput struct {
 }
 
 type UpdateJob struct {
-	ID     int
+	ID     uint64
 	Status string
 }
 
 type UpdateJobsInput struct {
 	Update []UpdateJob
-	Delete []int
+	Delete []uint64
 }
 
 type Storage interface {
@@ -59,7 +59,7 @@ func (s *storage) GetJobs(ctx context.Context, input *GetJobsInput) ([]Job, erro
 		Limit:                  aws.Int32(input.Limit),
 		KeyConditionExpression: aws.String("#h = :h"),
 		FilterExpression:       aws.String(fmt.Sprintf("#s IN (%v)", strings.Join(keys, ","))),
-		ProjectionExpression:   aws.String("ID,Content,#s,#h"),
+		ProjectionExpression:   aws.String("ID,OS,Content,#s,#h"),
 		ExpressionAttributeNames: map[string]string{
 			"#h": "Host",
 			"#s": "Status",
@@ -87,7 +87,7 @@ func (s *storage) UpdateJobs(ctx context.Context, input *UpdateJobsInput) error 
 				TableName: aws.String(s.table),
 				Key: map[string]types.AttributeValue{
 					"ID": &types.AttributeValueMemberN{
-						Value: strconv.Itoa(v.ID),
+						Value: uint64ToString(v.ID),
 					},
 				},
 				UpdateExpression:    aws.String("SET #s = :s"),
@@ -109,7 +109,7 @@ func (s *storage) UpdateJobs(ctx context.Context, input *UpdateJobsInput) error 
 				TableName: aws.String(s.table),
 				Key: map[string]types.AttributeValue{
 					"ID": &types.AttributeValueMemberN{
-						Value: strconv.Itoa(v),
+						Value: uint64ToString(v),
 					},
 				},
 			},
@@ -121,6 +121,11 @@ func (s *storage) UpdateJobs(ctx context.Context, input *UpdateJobsInput) error 
 	})
 
 	return err
+}
+
+func uint64ToString(n uint64) string {
+	base := 10
+	return strconv.FormatUint(n, base)
 }
 
 func New(client *dynamodb.Client, table, index string) Storage {

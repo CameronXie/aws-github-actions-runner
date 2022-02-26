@@ -6,7 +6,7 @@ import (
 )
 
 type AlreadyExistsError struct {
-	ID   int
+	ID   uint64
 	Type string
 }
 
@@ -20,7 +20,7 @@ func IsAlreadyExistsError(err error) bool {
 }
 
 type NotExistsError struct {
-	ID   int
+	ID   uint64
 	Type string
 }
 

@@ -23,13 +23,14 @@ describe('Storage tests', () => {
   it('should store the job', async () => {
     mockedClient.send.mockResolvedValue({});
     const table = 'table';
+    const supportedOS = ['ubuntu'];
     const job = {
       id: 123,
       labels: ['ubuntu'],
       owner: 'owner',
       repository: 'repo',
     };
-    await new Storage(new DynamoDBClient({}), table).store(job);
+    await new Storage(new DynamoDBClient({}), table, supportedOS).store(job);
 
     expect(mockedClient.send).toBeCalledWith(
       expect.objectContaining({
@@ -39,6 +40,7 @@ describe('Storage tests', () => {
           Item: expect.objectContaining({
             ID: { N: '123' },
             Host: { S: Host.EC2 },
+            OS: { S: 'ubuntu' },
             Status: { S: Status.Queued },
             Content: { B: await compressJob(job) },
             CreatedAt: { N: expect.anything() },
@@ -48,11 +50,32 @@ describe('Storage tests', () => {
     );
   });
 
+  it('should throw the unsupported OS error', async () => {
+    mockedClient.send.mockResolvedValue({});
+    const table = 'table';
+    const supportedOS = ['ubuntu'];
+    const job = {
+      id: 123,
+      labels: ['windows'],
+      owner: 'owner',
+      repository: 'repo',
+    };
+
+    await expect(
+      new Storage(new DynamoDBClient({}), table, supportedOS).store(job)
+    ).rejects.toEqual(new Error('no supported OS found in labels (windows)'));
+  });
+
   it('should set the job completed', async () => {
     mockedClient.send.mockResolvedValue({});
     const table = 'table';
+    const supportedOS = ['ubuntu'];
     const id = 1234;
-    await new Storage(new DynamoDBClient({}), table).setJobCompleted(id);
+    await new Storage(
+      new DynamoDBClient({}),
+      table,
+      supportedOS
+    ).setJobCompleted(id);
 
     expect(mockedClient.send).toBeCalledWith(
       expect.objectContaining({

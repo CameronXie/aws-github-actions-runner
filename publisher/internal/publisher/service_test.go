@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/CameronXie/aws-github-actions-runner/publisher/internal/queue"
+	"github.com/CameronXie/aws-github-actions-runner/publisher/internal/messenger"
 	"github.com/CameronXie/aws-github-actions-runner/publisher/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -15,12 +15,13 @@ import (
 
 func TestPublisher_Publish(t *testing.T) {
 	cases := map[string]struct {
-		opt          []HostOption
-		getJobErr    error
-		sendJobErr   error
-		updateJobErr error
-		expectedLogs []map[string]interface{}
-		err          error
+		opt                []HostOption
+		getJobErr          error
+		updateJobErr       error
+		publishJobsErr     error
+		notifyPublisherErr error
+		expectedLogs       []map[string]interface{}
+		err                error
 	}{
 		"publish queued jobs": {
 			opt: []HostOption{
@@ -28,10 +29,12 @@ func TestPublisher_Publish(t *testing.T) {
 				{Host: "eks", Limit: 2},
 			},
 			expectedLogs: []map[string]interface{}{
-				{"host": "ec2", "limit": int32(2)},
-				{"queued": []interface{}{1}, "completed": []interface{}{}},
-				{"host": "eks", "limit": int32(2)},
-				{"queued": []interface{}{4}, "completed": []interface{}{5}},
+				{"msg": "retrieving jobs", "host": "ec2", "limit": int32(2)},
+				{"msg": "processing jobs", "queued": []interface{}{uint64(1)}, "in_progress": []interface{}{uint64(2)}, "completed": []interface{}{}},
+				{"msg": "notify publisher"},
+				{"msg": "retrieving jobs", "host": "eks", "limit": int32(2)},
+				{"msg": "processing jobs", "queued": []interface{}{uint64(4)}, "in_progress": []interface{}{}, "completed": []interface{}{uint64(5)}},
+				{"msg": "notify publisher"},
 			},
 		},
 		"not jobs found": {
@@ -39,8 +42,8 @@ func TestPublisher_Publish(t *testing.T) {
 				{Host: "ec2", Limit: 0},
 			},
 			expectedLogs: []map[string]interface{}{
-				{"host": "ec2", "limit": int32(0)},
-				{"queued": []interface{}{}, "completed": []interface{}{}},
+				{"msg": "retrieving jobs", "host": "ec2", "limit": int32(0)},
+				{"msg": "processing jobs", "queued": []interface{}{}, "in_progress": []interface{}{}, "completed": []interface{}{}},
 			},
 		},
 		"failed to get jobs": {
@@ -56,16 +59,16 @@ func TestPublisher_Publish(t *testing.T) {
 				{Host: "ec2", Limit: 2},
 				{Host: "eks", Limit: 2},
 			},
-			sendJobErr: errors.New("failed to send jobs"),
-			err:        errors.New("failed to send jobs"),
+			publishJobsErr: errors.New("failed to send jobs"),
+			err:            errors.New("failed to send jobs"),
 		},
 		"failed to update jobs": {
 			opt: []HostOption{
 				{Host: "ec2", Limit: 2},
 				{Host: "eks", Limit: 2},
 			},
-			sendJobErr: errors.New("failed to update jobs"),
-			err:        errors.New("failed to update jobs"),
+			publishJobsErr: errors.New("failed to update jobs"),
+			err:            errors.New("failed to update jobs"),
 		},
 	}
 
@@ -73,15 +76,16 @@ func TestPublisher_Publish(t *testing.T) {
 		t.Run(n, func(t *testing.T) {
 			a := assert.New(t)
 			s := &mockedStorage{
-				jobs:         getTestJobs(),
-				getJobErr:    tc.getJobErr,
-				updateJobErr: tc.updateJobErr,
+				jobs:          getTestJobs(),
+				getJobsErr:    tc.getJobErr,
+				updateJobsErr: tc.updateJobErr,
 			}
-			q := &mockedQueue{
-				sendJobErr: tc.sendJobErr,
+			m := &mockedMessenger{
+				publishJobsErr:     tc.publishJobsErr,
+				notifyPublisherErr: tc.notifyPublisherErr,
 			}
 			core, logs := observer.New(zap.DebugLevel)
-			svc := New("l_queue", "t_queue", tc.opt, s, q, zap.New(core))
+			svc := New(s, m, tc.opt, zap.New(core))
 
 			err := svc.Publish(context.TODO())
 
@@ -93,7 +97,9 @@ func TestPublisher_Publish(t *testing.T) {
 
 			l := make([]map[string]interface{}, 0)
 			for _, i := range logs.All() {
-				l = append(l, i.ContextMap())
+				lm := i.ContextMap()
+				lm["msg"] = i.Message
+				l = append(l, lm)
 			}
 			a.ElementsMatch(tc.expectedLogs, l)
 		})
@@ -168,8 +174,8 @@ type mockedStorage struct {
 	sync.RWMutex
 	updateJobsInput *storage.UpdateJobsInput
 	jobs            map[string][]storage.Job
-	getJobErr       error
-	updateJobErr    error
+	getJobsErr      error
+	updateJobsErr   error
 }
 
 func (m *mockedStorage) GetJobs(_ context.Context, input *storage.GetJobsInput) ([]storage.Job, error) {
@@ -182,7 +188,7 @@ func (m *mockedStorage) GetJobs(_ context.Context, input *storage.GetJobsInput) 
 		}
 	}
 
-	return res, m.getJobErr
+	return res, m.getJobsErr
 }
 
 func (m *mockedStorage) UpdateJobs(_ context.Context, input *storage.UpdateJobsInput) error {
@@ -190,21 +196,26 @@ func (m *mockedStorage) UpdateJobs(_ context.Context, input *storage.UpdateJobsI
 	defer m.Unlock()
 
 	m.updateJobsInput = input
-	return m.updateJobErr
+	return m.updateJobsErr
 }
 
-type mockedQueue struct {
+type mockedMessenger struct {
 	sync.RWMutex
-	messages   []queue.Message
-	sendJobErr error
+	messages           []messenger.Message
+	publishJobsErr     error
+	notifyPublisherErr error
 }
 
-func (m *mockedQueue) Send(_ context.Context, messages []queue.Message) error {
+func (m *mockedMessenger) PublishJobs(_ context.Context, messages []messenger.Message) error {
 	m.Lock()
 	defer m.Unlock()
 
 	m.messages = append(m.messages, messages...)
-	return m.sendJobErr
+	return m.publishJobsErr
+}
+
+func (m *mockedMessenger) NotifyPublisher(_ context.Context) error {
+	return m.notifyPublisherErr
 }
 
 func inSlice(key string, s []string) bool {
