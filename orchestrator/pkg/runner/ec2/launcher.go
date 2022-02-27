@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"strconv"
 	"strings"
 	"text/template"
 
@@ -25,7 +24,7 @@ type LaunchConfig struct {
 }
 
 type templateData struct {
-	ID            int
+	ID            uint64
 	Owner         string
 	Repository    string
 	GitHubToken   string
@@ -46,7 +45,7 @@ type ec2Launcher struct {
 }
 
 func (l *ec2Launcher) Launch(ctx context.Context, input *runner.LaunchInput) error {
-	ids, rErr := getInstanceIDByTag(l.client, ctx, idTag, []string{strconv.Itoa(input.ID)})
+	ids, rErr := getInstanceIDByTag(l.client, ctx, idTag, []string{uint64ToString(input.ID)})
 
 	if rErr != nil {
 		return rErr
@@ -73,7 +72,7 @@ func (l *ec2Launcher) Launch(ctx context.Context, input *runner.LaunchInput) err
 				Tags: []types.Tag{
 					{
 						Key:   aws.String(idTag),
-						Value: aws.String(strconv.Itoa(input.ID)),
+						Value: aws.String(uint64ToString(input.ID)),
 					},
 				},
 			},

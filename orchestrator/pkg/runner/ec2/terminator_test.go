@@ -16,7 +16,7 @@ import (
 
 func TestEc2Terminator_Terminate(t *testing.T) {
 	cases := map[string]struct {
-		id                              int
+		id                              uint64
 		numInstances                    int
 		describeInstancesErr            error
 		expectedDescribeInstanceInput   *ec2.DescribeInstancesInput

@@ -3,9 +3,8 @@ package publisher
 import (
 	"context"
 	"encoding/json"
-	"strconv"
 
-	"github.com/CameronXie/aws-github-actions-runner/publisher/internal/queue"
+	"github.com/CameronXie/aws-github-actions-runner/publisher/internal/messenger"
 	"github.com/CameronXie/aws-github-actions-runner/publisher/internal/storage"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -23,8 +22,9 @@ type HostOption struct {
 }
 
 type Jobs struct {
-	Queued    []storage.Job
-	Completed []storage.Job
+	Queued     []storage.Job
+	InProgress []storage.Job
+	Completed  []storage.Job
 }
 
 type Publisher interface {
@@ -32,12 +32,10 @@ type Publisher interface {
 }
 
 type publisher struct {
-	storage             storage.Storage
-	queue               queue.Queue
-	hostOptions         []HostOption
-	launchQueueURL      string
-	terminationQueueURL string
-	logger              *zap.Logger
+	hostOptions []HostOption
+	messenger   messenger.Messenger
+	storage     storage.Storage
+	logger      *zap.Logger
 }
 
 func (p *publisher) Publish(ctx context.Context) error {
@@ -71,23 +69,28 @@ func (p *publisher) process(ctx context.Context, opt HostOption) error {
 	}
 
 	p.logger.Info("processing jobs",
-		zap.Ints("queued", getJobIDs(jobs.Queued)),
-		zap.Ints("completed", getJobIDs(jobs.Completed)),
+		zap.Uint64s("queued", getJobIDs(jobs.Queued)),
+		zap.Uint64s("in_progress", getJobIDs(jobs.InProgress)),
+		zap.Uint64s("completed", getJobIDs(jobs.Completed)),
 	)
 
-	msg := append(
-		toQueueMessages(p.terminationQueueURL, jobs.Completed),
-		toQueueMessages(p.launchQueueURL, jobs.Queued)...,
-	)
+	if len(jobs.Queued) != 0 || len(jobs.InProgress) != 0 || len(jobs.Completed) != 0 {
+		defer func() {
+			p.logger.Info(
+				"notify publisher",
+			)
+			_ = p.messenger.NotifyPublisher(ctx)
+		}()
+	}
 
-	if len(msg) == 0 {
+	if len(jobs.Queued) == 0 && len(jobs.Completed) == 0 {
 		return nil
 	}
 
-	qErr := p.queue.Send(ctx, msg)
-
-	if qErr != nil {
-		return qErr
+	msg := append(toMessage(jobs.Queued), toMessage(jobs.Completed)...)
+	nErr := p.messenger.PublishJobs(ctx, msg)
+	if nErr != nil {
+		return nErr
 	}
 
 	return p.updateJobs(ctx, *jobs)
@@ -104,9 +107,9 @@ func (p *publisher) getJobs(ctx context.Context, opt HostOption) (*Jobs, error) 
 		return nil, err
 	}
 
-	queued, err := p.storage.GetJobs(ctx, &storage.GetJobsInput{
+	jobs, err := p.storage.GetJobs(ctx, &storage.GetJobsInput{
 		Host:     opt.Host,
-		Statuses: []string{queuedStatus},
+		Statuses: []string{queuedStatus, inProgressStatus},
 		Limit:    opt.Limit + int32(len(completed)),
 	})
 
@@ -114,9 +117,25 @@ func (p *publisher) getJobs(ctx context.Context, opt HostOption) (*Jobs, error) 
 		return nil, err
 	}
 
+	queued := make([]storage.Job, 0)
+	inProgress := make([]storage.Job, 0)
+
+	for i := range jobs {
+		tmp := jobs[i]
+		if tmp.Status == queuedStatus {
+			queued = append(queued, tmp)
+			continue
+		}
+
+		if tmp.Status == inProgressStatus {
+			inProgress = append(inProgress, tmp)
+		}
+	}
+
 	return &Jobs{
-		Queued:    queued,
-		Completed: completed,
+		Queued:     queued,
+		InProgress: inProgress,
+		Completed:  completed,
 	}, nil
 }
 
@@ -129,7 +148,7 @@ func (p *publisher) updateJobs(ctx context.Context, jobs Jobs) error {
 		})
 	}
 
-	d := make([]int, 0)
+	d := make([]uint64, 0)
 	for _, i := range jobs.Completed {
 		d = append(d, i.ID)
 	}
@@ -140,22 +159,23 @@ func (p *publisher) updateJobs(ctx context.Context, jobs Jobs) error {
 	})
 }
 
-func toQueueMessages(url string, jobs []storage.Job) []queue.Message {
-	res := make([]queue.Message, 0)
+func toMessage(jobs []storage.Job) []messenger.Message {
+	res := make([]messenger.Message, 0)
 	for _, i := range jobs {
 		b, _ := json.Marshal(i.Content)
-		res = append(res, queue.Message{
-			URL:             url,
-			Body:            string(b),
-			DeduplicationID: strconv.Itoa(i.ID),
+		res = append(res, messenger.Message{
+			Host:   i.Host,
+			OS:     i.OS,
+			Status: i.Status,
+			Body:   string(b),
 		})
 	}
 
 	return res
 }
 
-func getJobIDs(jobs []storage.Job) []int {
-	ids := make([]int, 0)
+func getJobIDs(jobs []storage.Job) []uint64 {
+	ids := make([]uint64, 0)
 	for _, i := range jobs {
 		ids = append(ids, i.ID)
 	}
@@ -164,19 +184,15 @@ func getJobIDs(jobs []storage.Job) []int {
 }
 
 func New(
-	launchQueueURL string,
-	terminationQueueURL string,
-	hostOptions []HostOption,
 	s storage.Storage,
-	q queue.Queue,
+	m messenger.Messenger,
+	opts []HostOption,
 	logger *zap.Logger,
 ) Publisher {
 	return &publisher{
-		launchQueueURL:      launchQueueURL,
-		terminationQueueURL: terminationQueueURL,
-		hostOptions:         hostOptions,
-		storage:             s,
-		queue:               q,
-		logger:              logger,
+		hostOptions: opts,
+		storage:     s,
+		messenger:   m,
+		logger:      logger,
 	}
 }

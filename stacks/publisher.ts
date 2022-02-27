@@ -1,7 +1,6 @@
 import { join } from 'path';
 import { Construct } from 'constructs';
 import { Duration, RemovalPolicy, Stack, StackProps } from 'aws-cdk-lib';
-import { Queue } from 'aws-cdk-lib/aws-sqs';
 import {
   AttributeType,
   BillingMode,
@@ -9,10 +8,16 @@ import {
   StreamViewType,
   Table,
 } from 'aws-cdk-lib/aws-dynamodb';
-import { Code, Function, Runtime } from 'aws-cdk-lib/aws-lambda';
+import {
+  Code,
+  Function,
+  Runtime,
+  StartingPosition,
+} from 'aws-cdk-lib/aws-lambda';
 import { LambdaRestApi, MethodLoggingLevel } from 'aws-cdk-lib/aws-apigateway';
-import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
-import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
+import { DynamoEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
+import { Topic } from 'aws-cdk-lib/aws-sns';
+import { LambdaSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 
 interface PublisherProps extends StackProps {
   application: string;
@@ -22,35 +27,60 @@ interface PublisherProps extends StackProps {
   githubToken: string;
   ec2ConcurrencyLimit: number;
   eksConcurrencyLimit: number;
+  logLevel: string;
 }
 
 export class Publisher extends Stack {
-  readonly jobsTableHostIndex: string = 'HostIndex';
+  private readonly jobsTableHostIndex: string = 'HostIndex';
 
-  readonly launchQueueVisibilityTimeout: Duration = Duration.minutes(1);
+  private readonly dynamodbBatchSize: number = 10;
 
-  readonly terminationQueueVisibilityTimeout: Duration = Duration.seconds(30);
+  private readonly dynamodbBatchingWindow: Duration = Duration.seconds(10);
 
-  readonly publisherRate: Duration = Duration.minutes(1);
+  private readonly lambdaMemorySize: number = 512;
 
-  launchQueue: Queue;
+  private readonly lambdaDuration: Duration = Duration.seconds(30);
 
-  terminationQueue: Queue;
+  jobsTopic: Topic;
 
   constructor(scope: Construct, id: string, props: PublisherProps) {
     super(scope, id, props);
 
-    const eventsTable = this.createJobsTable(
+    const publisherTopic = new Topic(this, 'PublisherTopic', {
+      displayName: `${props.application}-publisher`,
+    });
+
+    this.jobsTopic = new Topic(this, 'JobsTopic', {
+      displayName: `${props.application}-jobs`,
+    });
+
+    const jobsTable = this.createJobsTable(
       props.application,
       this.jobsTableHostIndex
     );
+
     const producer = this.createProducer(
       props.application,
       props.githubAppID,
       props.githubAppPrivateKey,
       props.githubWebhookSecret,
-      eventsTable.tableName,
-      'debug'
+      jobsTable.tableName,
+      props.logLevel
+    );
+
+    const messenger = this.createMessenger(
+      props.application,
+      publisherTopic.topicArn
+    );
+
+    const publisher = this.createPublisher(
+      props.application,
+      props.ec2ConcurrencyLimit,
+      props.eksConcurrencyLimit,
+      jobsTable.tableName,
+      this.jobsTableHostIndex,
+      publisherTopic.topicArn,
+      this.jobsTopic.topicArn
     );
 
     new LambdaRestApi(this, 'PublisherAPIGateway', {
@@ -61,91 +91,22 @@ export class Publisher extends Stack {
         dataTraceEnabled: true,
       },
     });
+    jobsTable.grantWriteData(producer);
 
-    this.launchQueue = new Queue(this, 'LaunchSQS', {
-      queueName: `${props.application}-launch-sqs`,
-      visibilityTimeout: this.launchQueueVisibilityTimeout,
-    });
-
-    this.terminationQueue = new Queue(this, 'TerminationSQS', {
-      queueName: `${props.application}-termination-sqs`,
-      visibilityTimeout: this.terminationQueueVisibilityTimeout,
-    });
-
-    const publisher = this.createPublisher(
-      props.application,
-      props.ec2ConcurrencyLimit,
-      props.eksConcurrencyLimit,
-      eventsTable.tableName,
-      this.jobsTableHostIndex,
-      this.launchQueue.queueUrl,
-      this.terminationQueue.queueUrl
+    messenger.addEventSource(
+      new DynamoEventSource(jobsTable, {
+        startingPosition: StartingPosition.TRIM_HORIZON,
+        batchSize: this.dynamodbBatchSize,
+        maxBatchingWindow: this.dynamodbBatchingWindow,
+        bisectBatchOnError: true,
+        retryAttempts: 3,
+      })
     );
+    publisherTopic.grantPublish(messenger);
 
-    eventsTable.grantWriteData(producer);
-    eventsTable.grantReadWriteData(publisher);
-
-    new Rule(this, 'ScheduleRule', {
-      schedule: Schedule.rate(this.publisherRate),
-      targets: [new LambdaFunction(publisher)],
-    });
-
-    this.launchQueue.grantSendMessages(publisher);
-    this.terminationQueue.grantSendMessages(publisher);
-  }
-
-  createProducer(
-    application: string,
-    appID: string,
-    privateKey: string,
-    webhookSecret: string,
-    table: string,
-    logLevel: string
-    // eslint-disable-next-line @typescript-eslint/ban-types
-  ): Function {
-    return new Function(this, 'ProducerLambda', {
-      functionName: `${application}-producer`,
-      handler: 'lambda.handler',
-      runtime: Runtime.NODEJS_14_X,
-      code: Code.fromAsset(join(__dirname, '..', 'producer', 'dist')),
-      memorySize: 512,
-      timeout: Duration.seconds(30),
-      environment: {
-        APP_ID: appID,
-        PRIVATE_KEY: privateKey,
-        WEBHOOK_SECRET: webhookSecret,
-        JOBS_TABLE: table,
-        LOG_LEVEL: logLevel,
-      },
-    });
-  }
-
-  createPublisher(
-    application: string,
-    ec2Limits: number,
-    eksLimits: number,
-    table: string,
-    index: string,
-    launchQueue: string,
-    terminationQueue: string
-    // eslint-disable-next-line @typescript-eslint/ban-types
-  ): Function {
-    return new Function(this, 'PublisherLambda', {
-      functionName: `${application}-publisher`,
-      handler: 'publisher',
-      runtime: Runtime.GO_1_X,
-      code: Code.fromAsset(join(__dirname, '..', 'publisher', '_dist')),
-      memorySize: 512,
-      timeout: Duration.seconds(30),
-      environment: {
-        EC2_CURRENCY_LIMIT: ec2Limits.toString(),
-        EKS_CURRENCY_LIMIT: eksLimits.toString(),
-        JOBS_TABLE: table,
-        JOBS_TABLE_HOST_INDEX: index,
-        LAUNCH_QUEUE_URL: launchQueue,
-        TERMINATION_QUEUE_URL: terminationQueue,
-      },
-    });
+    publisherTopic.addSubscription(new LambdaSubscription(publisher));
+    this.jobsTopic.grantPublish(publisher);
+    jobsTable.grantReadWriteData(publisher);
   }
 
   createJobsTable(application: string, index: string): Table {
@@ -162,9 +123,79 @@ export class Publisher extends Stack {
       partitionKey: { name: 'Host', type: AttributeType.STRING },
       sortKey: { name: 'CreatedAt', type: AttributeType.NUMBER },
       projectionType: ProjectionType.INCLUDE,
-      nonKeyAttributes: ['Status', 'Content'],
+      nonKeyAttributes: ['OS', 'Content', 'Status'],
     });
 
     return table;
+  }
+
+  createProducer(
+    application: string,
+    appID: string,
+    privateKey: string,
+    webhookSecret: string,
+    table: string,
+    logLevel: string
+    // eslint-disable-next-line @typescript-eslint/ban-types
+  ): Function {
+    return new Function(this, 'ProducerLambda', {
+      functionName: `${application}-producer`,
+      handler: 'lambda.handler',
+      runtime: Runtime.NODEJS_14_X,
+      code: Code.fromAsset(join(__dirname, '..', 'producer', 'dist')),
+      memorySize: this.lambdaMemorySize,
+      timeout: this.lambdaDuration,
+      environment: {
+        APP_ID: appID,
+        PRIVATE_KEY: privateKey,
+        WEBHOOK_SECRET: webhookSecret,
+        JOBS_TABLE: table,
+        LOG_LEVEL: logLevel,
+      },
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  createMessenger(application: string, publisherTopic: string): Function {
+    return new Function(this, 'MessengerLambda', {
+      functionName: `${application}-messenger`,
+      handler: 'messenger',
+      runtime: Runtime.GO_1_X,
+      code: Code.fromAsset(join(__dirname, '..', 'messenger', '_dist')),
+      memorySize: this.lambdaMemorySize,
+      timeout: this.lambdaDuration,
+      environment: {
+        PUBLISHER_TOPIC: publisherTopic,
+      },
+    });
+  }
+
+  createPublisher(
+    application: string,
+    ec2Limits: number,
+    eksLimits: number,
+    table: string,
+    index: string,
+    publisherTopic: string,
+    jobsTopic: string
+    // eslint-disable-next-line @typescript-eslint/ban-types
+  ): Function {
+    return new Function(this, 'PublisherLambda', {
+      functionName: `${application}-publisher`,
+      handler: 'publisher',
+      runtime: Runtime.GO_1_X,
+      code: Code.fromAsset(join(__dirname, '..', 'publisher', '_dist')),
+      memorySize: this.lambdaMemorySize,
+      reservedConcurrentExecutions: 1,
+      timeout: this.lambdaDuration,
+      environment: {
+        EC2_CURRENCY_LIMIT: ec2Limits.toString(),
+        EKS_CURRENCY_LIMIT: eksLimits.toString(),
+        JOBS_TABLE: table,
+        JOBS_TABLE_HOST_INDEX: index,
+        PUBLISHER_TOPIC: publisherTopic,
+        JOBS_TOPIC: jobsTopic,
+      },
+    });
   }
 }

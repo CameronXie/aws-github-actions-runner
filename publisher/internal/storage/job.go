@@ -15,15 +15,16 @@ const (
 )
 
 type JobContent struct {
-	ID         int
+	ID         uint64
 	Owner      string
 	Repository string
 	Labels     []string
 }
 
 type Job struct {
-	ID      int
+	ID      uint64
 	Host    string
+	OS      string
 	Status  string
 	Content JobContent
 }
@@ -35,8 +36,9 @@ func (j *Job) UnmarshalDynamoDBAttributeValue(av types.AttributeValue) error {
 	}
 
 	raw := new(struct {
-		ID      int
+		ID      uint64
 		Host    string
+		OS      string
 		Status  string
 		Content []byte
 	})
@@ -55,6 +57,7 @@ func (j *Job) UnmarshalDynamoDBAttributeValue(av types.AttributeValue) error {
 
 	j.ID = raw.ID
 	j.Host = raw.Host
+	j.OS = raw.OS
 	j.Status = raw.Status
 	j.Content = content
 	return nil

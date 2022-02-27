@@ -2,7 +2,6 @@ package eks
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/CameronXie/aws-github-actions-runner/orchestrator/pkg/runner"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -20,13 +19,13 @@ type eksTerminator struct {
 	config     *RunnerTerminationConfig
 }
 
-func (t *eksTerminator) Terminate(ctx context.Context, id int) error {
+func (t *eksTerminator) Terminate(ctx context.Context, id uint64) error {
 	deletePolicy := metav1.DeletePropagationForeground
 	err := t.kubeClient.AppsV1().
 		Deployments(t.config.Namespace).
 		Delete(
 			ctx,
-			strconv.Itoa(id),
+			uint64ToString(id),
 			metav1.DeleteOptions{
 				PropagationPolicy: &deletePolicy,
 			},

@@ -3,7 +3,6 @@ package eks
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/CameronXie/aws-github-actions-runner/orchestrator/pkg/runner"
@@ -22,7 +21,7 @@ const (
 )
 
 type RunnerConfig struct {
-	ID         int
+	ID         uint64
 	Owner      string
 	Repository string
 	Labels     string
@@ -70,7 +69,7 @@ func (l *eksLauncher) Launch(ctx context.Context, input *runner.LaunchInput) err
 func (l *eksLauncher) getRunnerDeployment(config *RunnerConfig) *appv1.Deployment {
 	return &appv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: strconv.Itoa(config.ID),
+			Name: uint64ToString(config.ID),
 			Labels: map[string]string{
 				"app": "actions-runner",
 			},

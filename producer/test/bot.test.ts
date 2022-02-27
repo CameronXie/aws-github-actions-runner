@@ -42,7 +42,7 @@ describe('Producer tests', () => {
       log: pino(streamLogsToOutput),
     });
     output = [];
-    producer(new Storage(new DynamoDBClient({}), ''))(probot, {});
+    producer(new Storage(new DynamoDBClient({}), '', ['']))(probot, {});
   });
 
   it('should store the event when a workflow job is queued', async () => {

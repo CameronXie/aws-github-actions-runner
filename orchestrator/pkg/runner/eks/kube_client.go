@@ -3,6 +3,7 @@ package eks
 import (
 	"context"
 	"encoding/base64"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
@@ -49,4 +50,9 @@ func GetKubeClient(
 			CAData: ca,
 		},
 	})
+}
+
+func uint64ToString(n uint64) string {
+	base := 10
+	return strconv.FormatUint(n, base)
 }

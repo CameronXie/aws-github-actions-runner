@@ -9,11 +9,12 @@ and using `virtual machine hosting runner` for workflow which difficult to run o
 ### Components
 
 * `Producter` An NodeJS Lambda function which stores `workflow_job` events in `Jobs Table`.
-* `Job Table` An DynamoDB Table which tracks `workflow_job` status.
+* `Jobs Table` An DynamoDB Table which tracks `workflow_job` status.
 * `Publisher` An Golang Lambda function which queries `Jobs Table` and sends runner orchestration message to
-  SQS. `Publisher` responsible for the `flow control`, we don't want overheating AWS resource.
-* `Orchestrator` Two Golang Lambda functions (Launcher and Terminator) which receives message from SQS and launch or
-  terminate runners.
+  `Jobs Topic` SNS. `Publisher` responsible for the `flow control`, we don't want overheating AWS resource.
+* `Orchestrator (SQS + Lambda)` An SQS subscribes `Jobs Topic` on one particular runner host and OS combination (
+  example: EC2 and ubuntu subscription filter policy), and triggers a lambda to perform orchestration, spin up or
+  tear down runners.
 
 ### Diagram
 
@@ -21,13 +22,14 @@ and using `virtual machine hosting runner` for workflow which difficult to run o
 
 1. GitHub sends `workflow_job` events to `Producer`.
 2. `Producer` inserts job events into `Jobs Table` with status ('queued' or 'completed').
-3. `CloudWatch Events` triggers `Problisher` at a regular rate (e.g 10 seconds).
-4. `Publisher` queries `Jobs Table` to get a limited number of jobs (configurable, and FIFO).
-5. `Publisher` sends jobs (message) to `Launch SQS` or `Termination SQS` base on status ('queued' or 'completed').
-6. `Orchestrator` receives message from `Launch SQS` or `Termination SQS`.
-7. `Orchestrator` works out the desired runner hosting base on the `workflow_job labels`, and launch new runner or
-   terminate existing runner if `workflow_job` is completed or canceled.
-8. Self-hosted runner will register in GitHub, and start polling queued `workflow_job`.
+3. `Jobs Table` DynamoDB stream invokes `Messenger` lambda to publish a notification on `Publisher Topic`.
+4. `Publisher` queries `Jobs Table` to get a limited number of jobs (FIFO).
+5. `Publisher` publishes jobs to `Jobs Topic`.
+6. `Publisher` also publishes a notification on `Publisher Topic` until there is no job remains in `Jobs Table`.
+7. `Orchestrator` SQS subscribes `Jobs Topic` on one particular runner host and OS combination (e.g. eks ubuntu or ec2
+   windows).
+8. `Orchestrator` SQS triggers a lambda to perform orchestration operation, spin up or tear down.
+9. Self-hosted runner will register in GitHub, and start polling queued `workflow_job`.
 
 ## Deploy
 
@@ -38,6 +40,8 @@ and using `virtual machine hosting runner` for workflow which difficult to run o
     * API Gateway
     * DynamoDB
     * Lambda
+    * SNS
+    * SQS
     * EC2
     * EKS
     * ECR
@@ -59,7 +63,7 @@ and using `virtual machine hosting runner` for workflow which difficult to run o
 
 ## TODO
 
-* Explore replacing `CloudWatch Events` rate based trigger with `DynamoDB Streaming` and `SNS` approach.
 * Support Lambda hosting runner.
+* Support Distributed Tracing.
 
 

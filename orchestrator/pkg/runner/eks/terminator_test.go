@@ -16,7 +16,7 @@ func TestEksTerminator_Terminate(t *testing.T) {
 		Namespace: "ns",
 	}
 	cases := map[string]struct {
-		id                 int
+		id                 uint64
 		deploymentErr      error
 		expectedDeleteName string
 		err                error
