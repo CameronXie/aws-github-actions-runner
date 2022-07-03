@@ -33,7 +33,7 @@ deploy:
 
 build-runner-image:
 	# build ubuntu runner
-	@docker build --build-arg RUNNER_VERSION -t $(RUNNER_TAG) ./bin/runner/docker/ubuntu
+	@docker build --platform linux/amd64 --build-arg RUNNER_VERSION -t $(RUNNER_TAG) ./bin/runner/docker/ubuntu
 
 login-ecr:
 	@aws ecr get-login-password --region ${CDK_DEFAULT_REGION} | docker login --username AWS --password-stdin ${RUNNER_ECR}
@@ -49,5 +49,3 @@ deploy-images:
 deploy-eks:
 	@npm run cdk -- deploy actions-runner-vpc
 	@./bin/create_eks.sh
-
-
